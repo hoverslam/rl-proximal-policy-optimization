@@ -52,25 +52,28 @@ class PPOTrainer:
 
             self._model.train()
             for _ in range(num_epochs):
-                for obs, actions, old_log_probs, advantages, returns in loader:
-                    policy, values = self._model(obs)
+                for obs, actions, old_log_probs, old_values, advantages, returns in loader:
+                    policy, new_values = self._model(obs)
                     entropy = policy.entropy().mean()
 
                     # Normalize advantages batchwise (OpenAI baseline PPO)
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-                    # policy loss
+                    # Policy loss (clipped)
                     new_log_probs = policy.log_prob(actions.squeeze(-1)).unsqueeze(-1)
                     ratios = (new_log_probs - old_log_probs).exp()
                     policy_loss = torch.min(
                         ratios * advantages, torch.clamp(ratios, 1 - clip_range, 1 + clip_range) * advantages
                     ).mean()
 
-                    # value loss
-                    value_loss = F.mse_loss(values, returns)
+                    # Value loss (clipped)
+                    value_loss_normal = torch.pow(new_values - returns, 2.0)
+                    new_values_clipped = old_values + torch.clamp(new_values - old_values, -clip_range, clip_range)
+                    value_loss_clipped = torch.pow(new_values_clipped - returns, 2.0)
+                    value_loss = torch.max(value_loss_normal, value_loss_clipped).mean()
 
                     # Update parameters using the combined loss
-                    loss = vf_coef * value_loss - (policy_loss + entropy_coef * entropy)
+                    loss = vf_coef * value_loss - policy_loss - entropy_coef * entropy
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
@@ -122,6 +125,7 @@ class PPOTrainer:
             "obs": torch.stack(data[0], dim=1),
             "actions": torch.stack(data[1], dim=1).unsqueeze(-1),
             "log_probs": torch.stack(data[3], dim=1).unsqueeze(-1),
+            "values": values,
             "returns": returns,
             "advantages": advantages,
         }
@@ -166,17 +170,21 @@ class RolloutBuffer(Dataset):
         self._obs = data["obs"].flatten(0, 1).to(device)
         self._actions = data["actions"].flatten(0, 1).to(device)
         self._log_probs = data["log_probs"].flatten(0, 1).to(device)
+        self._values = data["values"].flatten(0, 1).to(device)
         self._returns = data["returns"].flatten(0, 1).to(device)
         self._advantages = data["advantages"].flatten(0, 1).to(device)
 
     def __len__(self) -> int:
         return len(self._actions)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return (
             self._obs[idx],
             self._actions[idx],
             self._log_probs[idx],
+            self._values[idx],
             self._advantages[idx],
             self._returns[idx],
         )
