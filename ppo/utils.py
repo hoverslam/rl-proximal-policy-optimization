@@ -6,31 +6,40 @@ def rgb_to_tensor(rgb: np.ndarray, device: str) -> torch.Tensor:
     return torch.from_numpy(rgb).permute(0, 3, 1, 2).to(device) / 255.0
 
 
-def normalize_rewards(rewards: torch.Tensor, env_name: str, env_mode: str) -> torch.Tensor:
-    if env_mode not in ["easy", "hard"]:
-        raise ValueError("Reward normalization only available for 'easy' and 'hard' mode.")
+class RewardNormalizer:
+    """Normalizes rewards such that their exponential moving average has a fixed variance."""
 
-    # From: Cobbe et al. (2019) Leveraging Procedural Generation to Benchmark Reinforcement Learning, Appendix C.
-    normalization_constants = {
-        "bigfish": {"hard": [0.0, 40.0], "easy": [1.0, 40.0]},
-        "bossfight": {"hard": [0.5, 13.0], "easy": [0.5, 13.0]},
-        "caveflyer": {"hard": [2.0, 13.4], "easy": [3.5, 12.0]},
-        "chaser": {"hard": [0.5, 14.2], "easy": [0.5, 13.0]},
-        "climber": {"hard": [1.0, 12.6], "easy": [2.0, 12.6]},
-        "coinrun": {"hard": [5.0, 10.0], "easy": [5.0, 10.0]},
-        "dodgeball": {"hard": [1.5, 19.0], "easy": [1.5, 19.0]},
-        "fruitbot": {"hard": [-0.5, 27.2], "easy": [-1.5, 32.4]},
-        "heist": {"hard": [2.0, 10.0], "easy": [3.5, 10.0]},
-        "jumper": {"hard": [1.0, 10.0], "easy": [3.0, 10.0]},
-        "leaper": {"hard": [1.5, 10.0], "easy": [3.0, 10.0]},
-        "maze": {"hard": [4.0, 10.0], "easy": [5.0, 10.0]},
-        "miner": {"hard": [1.5, 20.0], "easy": [1.5, 13.0]},
-        "ninja": {"hard": [2.0, 10.0], "easy": [3.5, 10.0]},
-        "plunder": {"hard": [3.0, 30.0], "easy": [4.5, 30.0]},
-        "starpilot": {"hard": [1.5, 35.0], "easy": [2.5, 64.0]},
-    }
+    def __init__(self, gamma: float):
+        """Initializes the Normalizer with a discount factor.
 
-    r_min = normalization_constants[env_name][env_mode][0]
-    r_max = normalization_constants[env_name][env_mode][1]
+        Args:
+            gamma (float): The discount factor used in the exponential moving average.
+        """
+        self._gamma = gamma
+        self._reward_ema = 0
+        self._reward_ema_sq = 0
+        self._t = 0
 
-    return (rewards - r_min) / (r_max - r_min)
+    def __call__(self, rewards: list[np.ndarray]) -> torch.Tensor:
+        """Normalizes the input rewards.
+
+        Args:
+            rewards (list[np.ndarray]): The rewards to normalize, expected to be a list of numpy arrays
+                                        with shape (num_envs, ).
+
+        Returns:
+            torch.Tensor: The normalized rewards with shape (num_envs, num_steps, 1).
+        """
+        num_steps = len(rewards)
+        num_envs = rewards[0].shape[0]
+        normalized_rewards = np.zeros((num_envs, num_steps, 1))
+
+        for i, reward in enumerate(rewards):
+            self._t += 1
+            self._reward_ema = self._gamma * self._reward_ema + (1 - self._gamma) * reward
+            self._reward_ema_sq = self._gamma * self._reward_ema_sq + (1 - self._gamma) * (reward**2)
+            variance = self._reward_ema_sq - self._reward_ema**2
+            normalized = (reward - self._reward_ema) / (np.sqrt(variance) + 1e-8)
+            normalized_rewards[:, i, 0] = normalized
+
+        return torch.tensor(normalized_rewards)

@@ -23,6 +23,7 @@ class PPOAgent:
         return policy.sample().cpu().numpy()
 
     def evaluate(self, start_level: int, num_levels: int, mode: str) -> float:
+        # TODO: Evaluate agent on the given levels
         raise NotImplementedError
 
     def save_model(self, fpath: str) -> None:

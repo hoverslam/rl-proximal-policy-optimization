@@ -1,5 +1,5 @@
 from ppo.agent import PPOAgent
-from ppo.utils import rgb_to_tensor
+from ppo.utils import RewardNormalizer, rgb_to_tensor
 
 import os
 
@@ -17,6 +17,7 @@ class PPOTrainer:
         self._env_name = agent.env_name
         self._env_mode = agent.env_mode
 
+        self._reward_normalizer = RewardNormalizer(gamma=0.99)
         self._checkpoint_dir = "./checkpoints"
         os.makedirs(self._checkpoint_dir, exist_ok=True)
 
@@ -114,8 +115,7 @@ class PPOTrainer:
 
             _, next_value = self._model(rgb_to_tensor(next_obs["rgb"], self._device))
 
-        rewards = torch.stack([torch.from_numpy(x) for x in data[2]], dim=1).unsqueeze(-1)
-        print(rewards.shape)
+        rewards = self._reward_normalizer(data[2])  # Normalize rewards (OpenAI baseline PPO)
         values = torch.stack(data[4], dim=1).cpu()
         next_value = next_value.cpu()
         masks = torch.stack([torch.from_numpy(~x) for x in data[5]], dim=1).unsqueeze(-1)
