@@ -4,7 +4,7 @@ from ppo.utils import rgb_to_tensor
 import os
 
 import torch
-import torch.nn.functional as F
+from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from procgen import ProcgenGym3Env
 
@@ -66,7 +66,7 @@ class PPOTrainer:
                         ratios * advantages, torch.clamp(ratios, 1 - clip_range, 1 + clip_range) * advantages
                     ).mean()
 
-                    # Value loss (clipped)
+                    # Value loss (clipped) (OpenAI baseline PPO)
                     value_loss_normal = torch.pow(new_values - returns, 2.0)
                     new_values_clipped = old_values + torch.clamp(new_values - old_values, -clip_range, clip_range)
                     value_loss_clipped = torch.pow(new_values_clipped - returns, 2.0)
@@ -76,6 +76,7 @@ class PPOTrainer:
                     loss = vf_coef * value_loss - policy_loss - entropy_coef * entropy
                     optimizer.zero_grad()
                     loss.backward()
+                    nn.utils.clip_grad_norm_(self._model.parameters(), 40)  # Gradient clipping (OpenAI baseline PPO)
                     optimizer.step()
 
             mean_reward = data["rewards"].mean().item()
@@ -114,6 +115,7 @@ class PPOTrainer:
             _, next_value = self._model(rgb_to_tensor(next_obs["rgb"], self._device))
 
         rewards = torch.stack([torch.from_numpy(x) for x in data[2]], dim=1).unsqueeze(-1)
+        print(rewards.shape)
         values = torch.stack(data[4], dim=1).cpu()
         next_value = next_value.cpu()
         masks = torch.stack([torch.from_numpy(~x) for x in data[5]], dim=1).unsqueeze(-1)
@@ -121,7 +123,7 @@ class PPOTrainer:
         returns = advantages + values  # Compute returns using GAE (OpenAI baseline PPO)
 
         return {
-            "rewards": rewards,
+            "rewards": torch.stack([torch.from_numpy(x) for x in data[2]], dim=1).unsqueeze(-1),
             "obs": torch.stack(data[0], dim=1),
             "actions": torch.stack(data[1], dim=1).unsqueeze(-1),
             "log_probs": torch.stack(data[3], dim=1).unsqueeze(-1),
