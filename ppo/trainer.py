@@ -56,8 +56,11 @@ class PPOTrainer:
                     policy, values = self._model(obs)
                     entropy = policy.entropy().mean()
 
+                    # Normalize advantages batchwise (OpenAI baseline PPO)
+                    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
                     # policy loss
-                    new_log_probs = policy.log_prob(actions)
+                    new_log_probs = policy.log_prob(actions.squeeze(-1)).unsqueeze(-1)
                     ratios = (new_log_probs - old_log_probs).exp()
                     policy_loss = torch.min(
                         ratios * advantages, torch.clamp(ratios, 1 - clip_range, 1 + clip_range) * advantages
@@ -66,7 +69,7 @@ class PPOTrainer:
                     # value loss
                     value_loss = F.mse_loss(values, returns)
 
-                    # Update parameters using the combined loss (maximize actor loss!)
+                    # Update parameters using the combined loss
                     loss = vf_coef * value_loss - (policy_loss + entropy_coef * entropy)
                     optimizer.zero_grad()
                     loss.backward()
@@ -84,7 +87,7 @@ class PPOTrainer:
                     torch.save(self._model.state_dict(), f"{self._checkpoint_dir}/{fname}")
 
     def _rollout(self, env: ProcgenGym3Env, num_steps: int, gamma: float, gae_lambda: float) -> dict[str, torch.Tensor]:
-        self._model.eval()
+        self._model.train()
         with torch.no_grad():
             data = [[], [], [], [], [], []]  # obs, actions, rewards, log_probs, values, masks
             _, obs, _ = env.observe()
@@ -111,14 +114,16 @@ class PPOTrainer:
         values = torch.stack(data[4], dim=1).cpu()
         next_value = next_value.cpu()
         masks = torch.stack([torch.from_numpy(~x) for x in data[5]], dim=1).unsqueeze(-1)
+        advantages = self._compute_gaes(rewards, values, next_value, masks, gamma, gae_lambda)
+        returns = advantages + values  # Compute returns using GAE (OpenAI baseline PPO)
 
         return {
             "rewards": rewards,
             "obs": torch.stack(data[0], dim=1),
             "actions": torch.stack(data[1], dim=1).unsqueeze(-1),
             "log_probs": torch.stack(data[3], dim=1).unsqueeze(-1),
-            "returns": self._compute_returns(rewards, masks, gamma),
-            "advantages": self._compute_gaes(rewards, values, next_value, masks, gamma, gae_lambda, True),
+            "returns": returns,
+            "advantages": advantages,
         }
 
     def _compute_returns(self, rewards: torch.Tensor, masks: torch.Tensor, gamma: float) -> torch.Tensor:
@@ -140,7 +145,6 @@ class PPOTrainer:
         masks: torch.Tensor,
         gamma: float,
         gae_lambda: float,
-        normalize: bool,
     ) -> torch.Tensor:
         num_env, num_steps, _ = rewards.shape
         advantages = torch.zeros_like(rewards, dtype=torch.float)
@@ -152,10 +156,7 @@ class PPOTrainer:
             advantages[:, i] = gae
             next_value = values[:, i]
 
-        if normalize:
-            return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        else:
-            return advantages
+        return advantages
 
 
 class RolloutBuffer(Dataset):
