@@ -36,7 +36,7 @@ class PPOTrainer:
         vf_coef: float,
         num_checkpoints: int | None = 10,
     ) -> None:
-        optimizer = torch.optim.Adam(self._model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(self._model.parameters(), lr=learning_rate)
         env = ProcgenGym3Env(
             num=num_envs,
             env_name=self._env_name,
