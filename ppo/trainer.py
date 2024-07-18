@@ -62,7 +62,7 @@ class PPOTrainer:
 
                     # Policy loss (clipped)
                     new_log_probs = policy.log_prob(actions.squeeze(-1)).unsqueeze(-1)
-                    ratios = (new_log_probs - old_log_probs).exp()
+                    ratios = torch.exp(new_log_probs - old_log_probs)
                     policy_loss = torch.min(
                         ratios * advantages, torch.clamp(ratios, 1 - clip_range, 1 + clip_range) * advantages
                     ).mean()
@@ -77,7 +77,7 @@ class PPOTrainer:
                     loss = vf_coef * value_loss - policy_loss - entropy_coef * entropy
                     optimizer.zero_grad()
                     loss.backward()
-                    nn.utils.clip_grad_norm_(self._model.parameters(), 40)  # Gradient clipping (OpenAI baseline PPO)
+                    nn.utils.clip_grad_norm_(self._model.parameters(), 0.5)  # Gradient clipping (OpenAI baseline PPO)
                     optimizer.step()
 
             mean_reward = data["rewards"].mean().item()
