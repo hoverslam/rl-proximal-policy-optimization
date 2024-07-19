@@ -1,8 +1,10 @@
 from ppo.agent import PPOAgent
-from ppo.utils import RewardNormalizer, rgb_to_tensor
+from ppo.utils import rgb_to_tensor
 
 import os
+import time
 
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -17,7 +19,6 @@ class PPOTrainer:
         self._env_name = agent.env_name
         self._env_mode = agent.env_mode
 
-        self._reward_normalizer = RewardNormalizer(gamma=0.99)
         self._checkpoint_dir = "./checkpoints"
         os.makedirs(self._checkpoint_dir, exist_ok=True)
 
@@ -46,31 +47,34 @@ class PPOTrainer:
             num_levels=num_levels,
         )
 
+        self._model.train()
         for i in range(num_iterations):
-            data = self._rollout(env, num_steps, gamma, gae_lambda)
-            buffer = RolloutBuffer(data, self._device)
-            loader = DataLoader(buffer, batch_size, shuffle=True)
+            start_time = time.time()
 
-            self._model.train()
+            data = self._rollout(env, num_steps, gamma, gae_lambda)
+            buffer = RolloutBuffer(data)
+            loader = DataLoader(buffer, batch_size=batch_size, shuffle=True)
+
             for _ in range(num_epochs):
-                for obs, actions, old_log_probs, old_values, advantages, returns in loader:
-                    policy, new_values = self._model(obs)
+                for obs, actions, old_log_probs, old_values, returns, advantages in loader:
+                    policy, new_values = self._model(obs.to(self._device))
                     entropy = policy.entropy().mean()
+                    new_values = new_values.squeeze()
 
                     # Normalize advantages batchwise (OpenAI baseline PPO)
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
                     # Policy loss (clipped)
-                    new_log_probs = policy.log_prob(actions.squeeze(-1)).unsqueeze(-1)
+                    new_log_probs = policy.log_prob(actions)
                     ratios = torch.exp(new_log_probs - old_log_probs)
                     policy_loss = torch.min(
                         ratios * advantages, torch.clamp(ratios, 1 - clip_range, 1 + clip_range) * advantages
                     ).mean()
 
                     # Value loss (clipped) (OpenAI baseline PPO)
-                    value_loss_normal = torch.pow(new_values - returns, 2.0)
                     new_values_clipped = old_values + torch.clamp(new_values - old_values, -clip_range, clip_range)
                     value_loss_clipped = torch.pow(new_values_clipped - returns, 2.0)
+                    value_loss_normal = torch.pow(new_values - returns, 2.0)
                     value_loss = torch.max(value_loss_normal, value_loss_clipped).mean()
 
                     # Update parameters using the combined loss
@@ -80,8 +84,7 @@ class PPOTrainer:
                     nn.utils.clip_grad_norm_(self._model.parameters(), 0.5)  # Gradient clipping (OpenAI baseline PPO)
                     optimizer.step()
 
-            mean_reward = data["rewards"].mean().item()
-            print(f"{i+1:{len(str(num_iterations))}}/{num_iterations}: {mean_reward=:.4f}")
+            print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: runtime={time.time() - start_time:.1f}s")
 
             # Create <num_checkpoints> evenly spaced checkpoints
             if num_checkpoints is not None:
@@ -92,7 +95,6 @@ class PPOTrainer:
                     torch.save(self._model.state_dict(), f"{self._checkpoint_dir}/{fname}")
 
     def _rollout(self, env: ProcgenGym3Env, num_steps: int, gamma: float, gae_lambda: float) -> dict[str, torch.Tensor]:
-        self._model.train()
         with torch.no_grad():
             data = [[], [], [], [], [], []]  # obs, actions, rewards, log_probs, values, masks
             _, obs, _ = env.observe()
@@ -107,6 +109,7 @@ class PPOTrainer:
                 env.act(action.cpu().numpy())
                 reward, next_obs, first = env.observe()
 
+                obs = obs.cpu()  # If on CUDA, torch.stack() destroys the images with weird artifacts (???)
                 for i, item in enumerate((obs, action, reward, log_prob, value, first)):
                     data[i].append(item)
 
@@ -115,31 +118,29 @@ class PPOTrainer:
 
             _, next_value = self._model(rgb_to_tensor(next_obs["rgb"], self._device))
 
-        rewards = self._reward_normalizer(data[2])  # Normalize rewards (OpenAI baseline PPO)
-        values = torch.stack(data[4], dim=1).cpu()
-        next_value = next_value.cpu()
-        masks = torch.stack([torch.from_numpy(~x) for x in data[5]], dim=1).unsqueeze(-1)
+        rewards = torch.from_numpy(np.stack(data[2], axis=1)).to(self._device)
+        values = torch.stack(data[4], dim=1).squeeze(-1)
+        masks = torch.from_numpy(~np.stack(data[5], axis=1)).to(self._device)  # ~ >>> True <=> False
         advantages = self._compute_gaes(rewards, values, next_value, masks, gamma, gae_lambda)
         returns = advantages + values  # Compute returns using GAE (OpenAI baseline PPO)
 
         return {
-            "rewards": torch.stack([torch.from_numpy(x) for x in data[2]], dim=1).unsqueeze(-1),
-            "obs": torch.stack(data[0], dim=1),
-            "actions": torch.stack(data[1], dim=1).unsqueeze(-1),
-            "log_probs": torch.stack(data[3], dim=1).unsqueeze(-1),
-            "values": values,
-            "returns": returns,
-            "advantages": advantages,
+            "obs": torch.stack(data[0], dim=1).flatten(0, 1),  # (num_envs * num_steps, channels, height, width)
+            "actions": torch.stack(data[1], dim=1).flatten(),  # (num_envs * num_steps, )
+            "log_probs": torch.stack(data[3], dim=1).flatten(),  # (num_envs * num_steps, )
+            "values": values.flatten(),  # (num_envs * num_steps, )
+            "returns": returns.flatten(),  # (num_envs * num_steps, )
+            "advantages": advantages.flatten(),  # (num_envs * num_steps, )
         }
 
     def _compute_returns(self, rewards: torch.Tensor, masks: torch.Tensor, gamma: float) -> torch.Tensor:
-        num_env, num_steps, _ = rewards.shape
-        discounted_returns = torch.zeros_like(rewards, dtype=torch.float)
-        delta = torch.zeros((num_env, 1), dtype=torch.float)
+        num_envs, num_steps = rewards.shape
+        discounted_returns = torch.zeros_like(rewards, device=self._device)
+        delta = torch.zeros((num_envs,), device=self._device)
 
-        for i in reversed(range(num_steps)):
-            delta = rewards[:, i] + gamma * delta * masks[:, i]
-            discounted_returns[:, i] = delta
+        for t in reversed(range(num_steps)):
+            delta = rewards[:, t] + gamma * delta * masks[:, t]
+            discounted_returns[:, t] = delta
 
         return discounted_returns
 
@@ -152,29 +153,30 @@ class PPOTrainer:
         gamma: float,
         gae_lambda: float,
     ) -> torch.Tensor:
-        num_env, num_steps, _ = rewards.shape
-        advantages = torch.zeros_like(rewards, dtype=torch.float)
-        gae = torch.zeros((num_env, 1), dtype=torch.float)
+        num_env, num_steps = rewards.shape
+        advantages = torch.zeros_like(rewards, dtype=torch.float, device=self._device)
+        gae = torch.zeros((num_env,), dtype=torch.float, device=self._device)
+        next_value = next_value.squeeze()
 
-        for i in reversed(range(num_steps)):
-            delta = rewards[:, i] + gamma * next_value * masks[:, i] - values[:, i]
-            gae = delta + gamma * gae_lambda * masks[:, i] * gae
-            advantages[:, i] = gae
-            next_value = values[:, i]
+        for t in reversed(range(num_steps)):
+            delta = rewards[:, t] + gamma * next_value * masks[:, t] - values[:, t]
+            gae = delta + gamma * gae_lambda * masks[:, t] * gae
+            advantages[:, t] = gae
+            next_value = values[:, t]
 
         return advantages
 
 
 class RolloutBuffer(Dataset):
 
-    def __init__(self, data: dict[str, torch.Tensor], device: str) -> None:
+    def __init__(self, data: dict[str, torch.Tensor]) -> None:
         super().__init__()
-        self._obs = data["obs"].flatten(0, 1).to(device)
-        self._actions = data["actions"].flatten(0, 1).to(device)
-        self._log_probs = data["log_probs"].flatten(0, 1).to(device)
-        self._values = data["values"].flatten(0, 1).to(device)
-        self._returns = data["returns"].flatten(0, 1).to(device)
-        self._advantages = data["advantages"].flatten(0, 1).to(device)
+        self._obs = data["obs"]
+        self._actions = data["actions"]
+        self._log_probs = data["log_probs"]
+        self._values = data["values"]
+        self._returns = data["returns"]
+        self._advantages = data["advantages"]
 
     def __len__(self) -> int:
         return len(self._actions)
@@ -187,6 +189,6 @@ class RolloutBuffer(Dataset):
             self._actions[idx],
             self._log_probs[idx],
             self._values[idx],
-            self._advantages[idx],
             self._returns[idx],
+            self._advantages[idx],
         )
