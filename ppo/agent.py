@@ -15,12 +15,13 @@ class PPOAgent:
         self.env_name = env_name
         self.env_mode = env_mode
 
-    def act(self, obs: np.ndarray) -> np.ndarray:
+    def act(self, obs: np.ndarray) -> tuple[np.ndarray, float]:
         self.model.eval()
         with torch.no_grad():
-            policy, _ = self.model(rgb_to_tensor(obs, self._device))
+            policy, value = self.model(rgb_to_tensor(obs, self._device))
+            action = policy.sample().cpu().numpy()
 
-        return policy.sample().cpu().numpy()
+        return action, value.item()
 
     def evaluate(self, start_level: int, num_levels: int, mode: str) -> float:
         # TODO: Evaluate agent on the given levels
