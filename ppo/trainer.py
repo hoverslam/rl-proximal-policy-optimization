@@ -1,5 +1,5 @@
 from ppo.agent import PPOAgent
-from ppo.utils import rgb_to_tensor
+from ppo.utils import NormalizeReward, Wrapper, rgb_to_tensor
 
 import os
 import time
@@ -46,6 +46,7 @@ class PPOTrainer:
             start_level=0,
             num_levels=num_levels,
         )
+        env = NormalizeReward(env, gamma=gamma)
 
         self._model.train()
         for i in range(num_iterations):
@@ -94,7 +95,9 @@ class PPOTrainer:
                     fname = f"{self._env_name}_{self._env_mode}_{i+1}.pt"
                     torch.save(self._model.state_dict(), f"{self._checkpoint_dir}/{fname}")
 
-    def _rollout(self, env: ProcgenGym3Env, num_steps: int, gamma: float, gae_lambda: float) -> dict[str, torch.Tensor]:
+    def _rollout(
+        self, env: ProcgenGym3Env | Wrapper, num_steps: int, gamma: float, gae_lambda: float
+    ) -> dict[str, torch.Tensor]:
         with torch.no_grad():
             data = [[], [], [], [], [], []]  # obs, actions, rewards, log_probs, values, masks
             _, obs, _ = env.observe()
