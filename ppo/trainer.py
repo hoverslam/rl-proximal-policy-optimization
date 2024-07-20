@@ -14,13 +14,13 @@ from procgen import ProcgenGym3Env
 class PPOTrainer:
 
     def __init__(self, agent: PPOAgent) -> None:
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._model = agent.model.to(self._device)
+        self._agent = agent
         self._env_name = agent.env_name
         self._env_mode = agent.env_mode
 
-        self._checkpoint_dir = "./checkpoints"
-        os.makedirs(self._checkpoint_dir, exist_ok=True)
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._model = agent.model.to(self._device)
+        self.logger = {}
 
     def train(
         self,
@@ -36,8 +36,15 @@ class PPOTrainer:
         clip_range: float,
         entropy_coef: float,
         vf_coef: float,
-        num_checkpoints: int | None = 10,
+        checkpoint_every: int | None = None,
+        evaluate_every: int | None = None,
     ) -> None:
+        if evaluate_every is not None:
+            self.logger["scores"] = {"train": [], "test": []}
+
+        checkpoint_dir = "./checkpoints"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
         optimizer = torch.optim.AdamW(self._model.parameters(), lr=learning_rate)
         env = ProcgenGym3Env(
             num=num_envs,
@@ -85,15 +92,28 @@ class PPOTrainer:
                     nn.utils.clip_grad_norm_(self._model.parameters(), 0.5)  # Gradient clipping (OpenAI baseline PPO)
                     optimizer.step()
 
-            print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: runtime={time.time() - start_time:.1f}s")
+            runtime = time.time() - start_time
+            print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: {runtime=:.1f}s", end="")
 
-            # Create <num_checkpoints> evenly spaced checkpoints
-            if num_checkpoints is not None:
-                start = (num_iterations - 1) // 10
-                end = num_iterations - 1
-                if i in torch.linspace(start, end, steps=10, dtype=torch.int).tolist():
-                    fname = f"{self._env_name}_{self._env_mode}_{i+1}.pt"
-                    torch.save(self._model.state_dict(), f"{self._checkpoint_dir}/{fname}")
+            # Create checkpoint
+            if (checkpoint_every is not None) and ((i + 1) % checkpoint_every == 0):
+                fname = f"{self._env_name}_{self._env_mode}_{i+1}.pt"
+                torch.save(self._model.state_dict(), f"{checkpoint_dir}/{fname}")
+
+            # Evaluate agent on train and test set (50 episodes each)
+            if (evaluate_every is not None) and ((i + 1) % evaluate_every == 0):
+                train_scores = self._agent.evaluate(start_level=0, num_episodes=50)
+                self.logger["scores"]["train"].append((i + 1, train_scores))
+                test_scores = self._agent.evaluate(start_level=num_levels, num_episodes=50)
+                self.logger["scores"]["test"].append((i + 1, test_scores))
+                print(f", train_score: {sum(train_scores) / len(train_scores):.2f}", end="")
+                print(f", test_score: {sum(test_scores) / len(test_scores):.2f}")
+            else:
+                print()
+
+        # Save final model after last iteration
+        fname = f"{self._env_name}_{self._env_mode}_final.pt"
+        torch.save(self._model.state_dict(), f"{checkpoint_dir}/{fname}")
 
     def _rollout(
         self, env: ProcgenGym3Env | Wrapper, num_steps: int, gamma: float, gae_lambda: float

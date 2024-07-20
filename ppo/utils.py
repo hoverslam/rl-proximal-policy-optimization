@@ -9,6 +9,20 @@ def rgb_to_tensor(rgb: np.ndarray, device: str) -> torch.Tensor:
     return torch.from_numpy(rgb).permute(0, 3, 1, 2).to(device) / 255.0
 
 
+def run_episode(env, agent) -> float:
+    obs = env.reset()
+    total_reward = 0.0
+    done = False
+
+    while not done:
+        obs = obs[np.newaxis, :]
+        action, _ = agent.act(obs)
+        obs, reward, done, _ = env.step(action.squeeze(0))
+        total_reward += reward
+
+    return total_reward
+
+
 class NormalizeReward(Wrapper):
 
     def __init__(
