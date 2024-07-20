@@ -29,7 +29,7 @@ class PPOTrainer:
         num_iterations: int,
         num_steps: int,
         num_epochs: int,
-        batch_size: int,
+        num_batches: int,
         learning_rate: float,
         gamma: float,
         gae_lambda: float,
@@ -61,6 +61,7 @@ class PPOTrainer:
 
             data = self._rollout(env, num_steps, gamma, gae_lambda)
             buffer = RolloutBuffer(data)
+            batch_size = len(buffer) // num_batches
             loader = DataLoader(buffer, batch_size=batch_size, shuffle=True)
 
             for _ in range(num_epochs):
