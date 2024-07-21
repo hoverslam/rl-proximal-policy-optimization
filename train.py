@@ -110,11 +110,11 @@ def main() -> None:
         fname = f"{agent.env_name}_{agent.env_mode}"
         results = trainer.logger["scores"]
         with open(f"{result_dir}/{fname}.csv", "w", newline="") as csv:
-            csv.write("timestep,mode,agent,score\n")
-            for mode, iteration in results.items():
+            csv.write("timestep,set,agent,score\n")
+            for set, iteration in results.items():
                 for ts, scores in iteration:
                     for agent, score in enumerate(scores):
-                        csv.write(f"{ts},{mode},{agent},{score}\n")
+                        csv.write(f"{ts},{set},{agent},{score}\n")
 
 
 if __name__ == "__main__":
