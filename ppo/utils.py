@@ -1,34 +1,38 @@
 import numpy as np
 import torch
 from gym3.wrapper import Wrapper
-from gym3.types import ValType
-from procgen import ProcgenGym3Env
 
 
 def rgb_to_tensor(rgb: np.ndarray, device: str) -> torch.Tensor:
     return torch.from_numpy(rgb).permute(0, 3, 1, 2).to(device) / 255.0
 
 
-def run_episode(env, agent) -> float:
-    obs = env.reset()
-    total_reward = 0.0
-    done = False
+def evaluate_agent(agent, env, max_steps: int) -> list:
+    _, obs, _ = env.observe()
+    total_reward = []
+    firsts = []
+    step = 0
+    while step < max_steps:
+        env.act(agent.act(obs["rgb"])[0])
+        reward, obs, first = env.observe()
+        total_reward.append(reward)
+        firsts.append(first)
+        step += 1
 
-    while not done:
-        obs = obs[np.newaxis, :]
-        action, _ = agent.act(obs)
-        obs, reward, done, _ = env.step(action.squeeze(0))
-        total_reward += reward
+    return compute_mean_rewards(total_reward, firsts)
 
-    return total_reward
+
+def compute_mean_rewards(rewards: list[np.ndarray], firsts: list[np.ndarray]) -> list:
+    total_rewards = np.stack(rewards, axis=1).sum(axis=1)
+    num_episodes = np.stack(firsts, axis=1).sum(axis=1) + 1
+
+    return (total_rewards / num_episodes).tolist()
 
 
 class NormalizeReward(Wrapper):
 
-    def __init__(
-        self, env: ProcgenGym3Env, gamma: float, ob_space: ValType | None = None, ac_space: ValType | None = None
-    ) -> None:
-        super().__init__(env, ob_space or env.ob_space, ac_space or env.ac_space)
+    def __init__(self, env, gamma: float) -> None:
+        super().__init__(env)
         self.env = env
         self.gamma = gamma
         self.return_rms_mean = np.zeros((), dtype=np.float64)

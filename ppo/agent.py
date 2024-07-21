@@ -1,15 +1,10 @@
-from ppo.utils import rgb_to_tensor, run_episode
-
-import warnings
+from ppo.utils import rgb_to_tensor
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.distributions import Distribution, Categorical
-import gym
-
-warnings.filterwarnings("ignore")
 
 
 class PPOAgent:
@@ -27,21 +22,6 @@ class PPOAgent:
             action = policy.sample().cpu().numpy()
 
         return action, value.cpu().numpy()
-
-    def evaluate(self, start_level: int, num_episodes: int) -> list:
-        scores = []
-        for i in range(num_episodes):
-            env = gym.make(
-                f"procgen:procgen-{self.env_name}-v0",
-                render_mode="rgb_array",
-                start_level=(start_level + i),
-                num_levels=1,
-                distribution_mode=self.env_mode,
-            )
-            score = run_episode(env, self)
-            scores.append(score)
-
-        return scores
 
     def save_model(self, fpath: str) -> None:
         torch.save(self.model.state_dict(), fpath)

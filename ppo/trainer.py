@@ -1,5 +1,5 @@
 from ppo.agent import PPOAgent
-from ppo.utils import NormalizeReward, Wrapper, rgb_to_tensor
+from ppo.utils import NormalizeReward, Wrapper, rgb_to_tensor, evaluate_agent
 
 import os
 import time
@@ -36,15 +36,37 @@ class PPOTrainer:
         clip_range: float,
         entropy_coef: float,
         vf_coef: float,
-        checkpoint_every: int | None = None,
-        evaluate_every: int | None = None,
+        num_checkpoints: int | None = None,
+        num_evaluations: int | None = None,
     ) -> None:
-        if evaluate_every is not None:
-            self.logger["scores"] = {"train": [], "test": []}
-
         checkpoint_dir = "./checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
 
+        if num_checkpoints is not None:
+            if num_iterations > 2:
+                checkpoints = np.linspace(start=0, stop=(num_iterations - 1), num=(num_checkpoints + 2), dtype=int)
+                checkpoints = set(checkpoints[1:-1])  # Don't create a checkpoint at the beginning and end
+
+        if num_evaluations is not None:
+            evaluation_points = np.linspace(start=0, stop=(num_iterations - 1), num=num_evaluations, dtype=int)
+            evaluation_points = set(evaluation_points)
+            self.logger["scores"] = {"train": [], "test": []}
+            env_eval_train = ProcgenGym3Env(  # Environment to evaluate the agent on known levels
+                num=4,
+                env_name=self._env_name,
+                distribution_mode=self._env_mode,
+                start_level=0,
+                num_levels=num_levels,
+            )
+            env_eval_test = ProcgenGym3Env(  # Environment to evaluate the agent on unseen levels
+                num=4,
+                env_name=self._env_name,
+                distribution_mode=self._env_mode,
+                start_level=num_levels,
+                num_levels=num_levels,
+            )
+
+        # Initialize optimizer and environment for training
         optimizer = torch.optim.AdamW(self._model.parameters(), lr=learning_rate)
         env = ProcgenGym3Env(
             num=num_envs,
@@ -55,6 +77,7 @@ class PPOTrainer:
         )
         env = NormalizeReward(env, gamma=gamma)
 
+        # PPO training loop: rollout => update => rollout => ...
         self._model.train()
         for i in range(num_iterations):
             start_time = time.time()
@@ -93,24 +116,27 @@ class PPOTrainer:
                     nn.utils.clip_grad_norm_(self._model.parameters(), 0.5)  # Gradient clipping (OpenAI baseline PPO)
                     optimizer.step()
 
-            runtime = time.time() - start_time
-            print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: {runtime=:.1f}s", end="")
-
             # Create checkpoint
-            if (checkpoint_every is not None) and ((i + 1) % checkpoint_every == 0):
+            if (num_checkpoints is not None) and (i in checkpoints):
                 fname = f"{self._env_name}_{self._env_mode}_{i+1}.pt"
                 torch.save(self._model.state_dict(), f"{checkpoint_dir}/{fname}")
 
-            # Evaluate agent on train and test set (50 episodes each)
-            if (evaluate_every is not None) and ((i + 1) % evaluate_every == 0):
-                train_scores = self._agent.evaluate(start_level=0, num_episodes=50)
-                self.logger["scores"]["train"].append((i + 1, train_scores))
-                test_scores = self._agent.evaluate(start_level=num_levels, num_episodes=50)
-                self.logger["scores"]["test"].append((i + 1, test_scores))
-                print(f", train_score: {sum(train_scores) / len(train_scores):.2f}", end="")
-                print(f", test_score: {sum(test_scores) / len(test_scores):.2f}")
+            # Evaluate agent on train and test set: A modified approach compared to the Procgen paper
+            # for computational efficiency while maintaining similar results.
+            if (num_evaluations is not None) and (i in evaluation_points):
+                timestep = (i + 1) * num_envs * num_steps
+                train_scores = evaluate_agent(self._agent, env_eval_train, max_steps=(num_envs * num_steps // 4))
+                self.logger["scores"]["train"].append((timestep, train_scores))
+                test_scores = evaluate_agent(self._agent, env_eval_test, max_steps=(num_envs * num_steps // 4))
+                self.logger["scores"]["test"].append((timestep, test_scores))
+
+                runtime = time.time() - start_time
+                print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: {runtime=:.1f}s, ", end="")
+                print(f"train_score: {sum(train_scores) / len(train_scores):.2f}, ", end="")
+                print(f"test_score: {sum(test_scores) / len(test_scores):.2f}")
             else:
-                print()
+                runtime = time.time() - start_time
+                print(f"{(i+1):{len(str(num_iterations))}}/{num_iterations}: {runtime=:.1f}s")
 
         # Save final model after last iteration
         fname = f"{self._env_name}_{self._env_mode}_final.pt"
