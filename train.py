@@ -29,9 +29,8 @@ def main() -> None:
     parser.add_argument(
         "--env_name",
         type=str,
-        default="coinrun",
         choices=ENVS,
-        help="Name of the environment to train on. For example, 'coinrun', 'bossfight', etc.",
+        help="Name of the environment to train on.",
     )
     parser.add_argument(
         "--env_mode",

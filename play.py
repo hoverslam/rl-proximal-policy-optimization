@@ -20,7 +20,6 @@ def main() -> None:
     parser.add_argument(
         "--env_name",
         type=str,
-        default="coinrun",
         choices=ENVS,
         help="Name of the environment to play",
     )
