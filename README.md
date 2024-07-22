@@ -21,35 +21,39 @@ The algorithm introduces a clipping mechanism to the policy objective, which pre
 
 ## Results
 
-<div style="display:flex; justify-content:space-evenly;">
-    <img src="img/coinrun.png" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-    <img src="img/coinrun.gif" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
+<div align="center">
+<table>
+<tbody> 
+    <tr>
+        <td><img src="img/coinrun.png" style="height: 300px; width:380px;"/> </td>
+        <td><img src="img/coinrun.gif" style="height: 300px; width:300px;"/></td>
+    </tr>
+    <tr>
+        <td><img src="img/starpilot.png" style="height: 300px; width:380px;"/></td>
+        <td><img src="img/starpilot.gif" style="height: 300px; width:300px;"/></td>
+    </tr>
+    <tr>
+        <td><img src="img/leaper.png" style="height: 300px; width:380px;"/></td>
+        <td><img src="img/leaper.gif" style="height: 300px; width:300px"/></td>
+    </tr>
+    <tr>
+        <td><img src="img/bigfish.png" style="height: 300px; width:380px;"/></td>
+        <td><img src="img/bigfish.gif" style="height: 300px; width:300px"/></td>
+    </tr>
+    <tr>
+        <td><img src="img/ninja.png" style="height: 300px; width:380px;"/></td>
+        <td><img src="img/ninja.gif" style="height: 300px; width:300px"/></td>
+    </tr>
+</tbody>
+</table>
 </div>
-<div style="width: 80%; margin: 15px auto; border-bottom: 2px solid #333;"></div>
-<div style="display:flex; justify-content:space-evenly;">
-    <img src="img/starpilot.png" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-    <img src="img/starpilot.gif" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-</div>
-<div style="width: 80%; margin: 15px auto; border-bottom: 2px solid #333;"></div>
-<div style="display:flex; justify-content:space-evenly;">
-    <img src="img/leaper.png" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-    <img src="img/leaper.gif" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-</div>
-<div style="width: 80%; margin: 15px auto; border-bottom: 2px solid #333;"></div>
-<div style="display:flex; justify-content:space-evenly;">
-    <img src="img/bigfish.png" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-    <img src="img/bigfish.gif" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-</div>
-<div style="width: 80%; margin: 15px auto; border-bottom: 2px solid #333;"></div>
-<div style="display:flex; justify-content:space-evenly;">
-    <img src="img/ninja.png" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-    <img src="img/ninja.gif" style="height: 300px; width:auto; border: 2px solid #333; border-radius: 8px;"/>
-</div>
-<!-- <div style="width: 80%; margin: 15px auto; border-bottom: 2px solid #333;"></div>
-<div style="text-align: center;">
+
+---
+
+<div align="center">
     <img src="./img/results_procgen_paper.png" alt="Results from the Procgen paper"/>
-    <p><em>Results from <b>Leveraging Procedural Generation to Benchmark Reinforcement Learning</b> by Karl Cobbe, Christopher Hesse, Jacob Hilton, and John Schulman (2020).</em></p>
-</div> -->
+    <p><em>Results from Leveraging Procedural Generation to Benchmark Reinforcement Learning by Karl Cobbe, Christopher Hesse, Jacob Hilton, and John Schulman (2020).</em></p>
+</div>
 
 
 ## Installation
@@ -102,7 +106,8 @@ For possible options use ```--help``` :
 python -m train --help
 ```
 
-Results were obtained with the default settings and `num_evals=60`. 
+> [!NOTE]  
+> Results were obtained with the default settings and `num_evals=60`.
 
 Training, including evaluation, consumed approximately 3 GPU hours on the following system:
 
@@ -116,8 +121,8 @@ Training, including evaluation, consumed approximately 3 GPU hours on the follow
 ```powershell
 python -m play --env_name="starpilot"
 ```
-
-:warning: Closing the window will not terminate the script. To stop the script, manually press Ctrl+C.
+> [!WARNING]
+> Closing the window will not terminate the script. To stop the script, manually press Ctrl+C.
 
 For possible options use ```--help``` :
 ```powershell
