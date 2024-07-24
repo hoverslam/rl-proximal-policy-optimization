@@ -4,10 +4,29 @@ from gym3.wrapper import Wrapper
 
 
 def rgb_to_tensor(rgb: np.ndarray, device: str) -> torch.Tensor:
+    """Convert an RGB image to a tensor.
+
+    Args:
+        rgb (np.ndarray): The input RGB image as a NumPy array (H x W x C).
+        device (str): The device to place the tensor on ('cpu' or 'cuda').
+
+    Returns:
+        torch.Tensor: The image as a tensor normalized to [0, 1].
+    """
     return torch.from_numpy(rgb).permute(0, 3, 1, 2).to(device) / 255.0
 
 
 def evaluate_agent(agent, env, max_steps: int) -> list:
+    """Evaluate an agent in the given environment for a maximum number of steps.
+
+    Args:
+        agent: The agent to be evaluated.
+        env: The environment in which to evaluate the agent.
+        max_steps (int): The maximum number of steps for the evaluation.
+
+    Returns:
+        list: Mean rewards of the agent across episodes.
+    """
     _, obs, _ = env.observe()
     total_reward = []
     firsts = []
@@ -23,6 +42,15 @@ def evaluate_agent(agent, env, max_steps: int) -> list:
 
 
 def compute_mean_rewards(rewards: list[np.ndarray], firsts: list[np.ndarray]) -> list:
+    """Compute the mean epsisode rewards of the agent given a sequence of steps.
+
+    Args:
+        rewards (list[np.ndarray]): List of reward arrays.
+        firsts (list[np.ndarray]): List of first-step indicators (1 = new episode).
+
+    Returns:
+        list: Mean rewards per episode.
+    """
     total_rewards = np.stack(rewards, axis=1).sum(axis=1)
     num_episodes = np.stack(firsts, axis=1).sum(axis=1) + 1
 
@@ -30,8 +58,15 @@ def compute_mean_rewards(rewards: list[np.ndarray], firsts: list[np.ndarray]) ->
 
 
 class NormalizeReward(Wrapper):
+    """Normalize rewards in the environment using running mean and variance."""
 
     def __init__(self, env, gamma: float) -> None:
+        """Initialize the Normalizer.
+
+        Args:
+            env: The environment to be wrapped.
+            gamma (float): Discount factor for rewards.
+        """
         super().__init__(env)
         self.env = env
         self.gamma = gamma
@@ -49,6 +84,11 @@ class NormalizeReward(Wrapper):
         return normalized_reward, obs, first
 
     def update_return_rms(self, x: np.ndarray) -> None:
+        """Update running mean and variance of returns.
+
+        Args:
+            x (np.ndarray): Current accumulated rewards.
+        """
         batch_mean = np.mean(x, axis=0)
         batch_var = np.var(x, axis=0)
         batch_count = x.shape[0]

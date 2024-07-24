@@ -12,8 +12,14 @@ from procgen import ProcgenGym3Env
 
 
 class PPOTrainer:
+    """A class to train a PPOAgent using the Proximal Policy Optimization (PPO) algorithm."""
 
     def __init__(self, agent: PPOAgent) -> None:
+        """Initialize the PPOTrainer.
+
+        Args:
+            agent (PPOAgent): The PPO agent to be trained.
+        """
         self._agent = agent
         self._env_name = agent.env_name
         self._env_mode = agent.env_mode
@@ -39,6 +45,24 @@ class PPOTrainer:
         num_checkpoints: int | None = None,
         num_evaluations: int | None = None,
     ) -> None:
+        """Train the PPO agent.
+
+        Args:
+            num_envs (int): Number of parallel environments.
+            num_levels (int): Number of levels seen during training.
+            num_iterations (int): Number of training iterations.
+            num_steps (int): Number of steps per rollout.
+            num_epochs (int): Number of epochs per update.
+            num_batches (int): Number of batches per epoch.
+            learning_rate (float): Learning rate for the optimizer.
+            gamma (float): Discount factor for rewards.
+            gae_lambda (float): Lambda for Generalized Advantage Estimation (GAE).
+            clip_range (float): Clipping range for policy and value loss.
+            entropy_coef (float): Coefficient for entropy bonus.
+            vf_coef (float): Coefficient for value function loss.
+            num_checkpoints (int | None, optional): Number of checkpoints to save. Defaults to None.
+            num_evaluations (int | None, optional): Number of evaluations during training. Defaults to None.
+        """
         checkpoint_dir = "./checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -145,6 +169,17 @@ class PPOTrainer:
     def _rollout(
         self, env: ProcgenGym3Env | Wrapper, num_steps: int, gamma: float, gae_lambda: float
     ) -> dict[str, torch.Tensor]:
+        """Perform a rollout in the environment to collect training data.
+
+        Args:
+            env (ProcgenGym3Env | Wrapper): The environment to interact with.
+            num_steps (int): Number of steps per rollout.
+            gamma (float): Discount factor for rewards.
+            gae_lambda (float): Lambda for Generalized Advantage Estimation (GAE).
+
+        Returns:
+            dict[str, torch.Tensor]: Collected data including observations, actions, log_probs, values, returns, and advantages.
+        """
         with torch.no_grad():
             data = [[], [], [], [], [], []]  # obs, actions, rewards, log_probs, values, masks
             _, obs, _ = env.observe()
@@ -184,6 +219,16 @@ class PPOTrainer:
         }
 
     def _compute_returns(self, rewards: torch.Tensor, masks: torch.Tensor, gamma: float) -> torch.Tensor:
+        """Compute discounted returns.
+
+        Args:
+            rewards (torch.Tensor): Collected rewards.
+            masks (torch.Tensor): Masks indicating episode ends (0 = new episode).
+            gamma (float): Discount factor for rewards.
+
+        Returns:
+            torch.Tensor: Discounted returns.
+        """
         num_envs, num_steps = rewards.shape
         discounted_returns = torch.zeros_like(rewards, device=self._device)
         delta = torch.zeros((num_envs,), device=self._device)
@@ -203,6 +248,19 @@ class PPOTrainer:
         gamma: float,
         gae_lambda: float,
     ) -> torch.Tensor:
+        """Compute Generalized Advantage Estimation (GAE).
+
+        Args:
+            rewards (torch.Tensor): Collected rewards.
+            values (torch.Tensor): Value estimates.
+            next_value (torch.Tensor): Value estimate for the next state.
+            masks (torch.Tensor): Masks indicating episode ends (0 = new episode).
+            gamma (float): Discount factor for rewards.
+            gae_lambda (float): Lambda for GAE.
+
+        Returns:
+            torch.Tensor: Computed advantages.
+        """
         num_env, num_steps = rewards.shape
         advantages = torch.zeros_like(rewards, dtype=torch.float, device=self._device)
         gae = torch.zeros((num_env,), dtype=torch.float, device=self._device)
@@ -218,8 +276,14 @@ class PPOTrainer:
 
 
 class RolloutBuffer(Dataset):
+    """A dataset class to handle the rollout data."""
 
     def __init__(self, data: dict[str, torch.Tensor]) -> None:
+        """Initialize the RolloutBuffer.
+
+        Args:
+            data (dict[str, torch.Tensor]): Collected rollout data.
+        """
         super().__init__()
         self._obs = data["obs"]
         self._actions = data["actions"]
